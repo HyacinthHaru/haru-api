@@ -17,7 +17,8 @@
     "cli": "tsx src/cli.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "e2e": "tsx test/e2e/consistency.ts"
   },
   "dependencies": {
     "fastify": "^5.12.5",

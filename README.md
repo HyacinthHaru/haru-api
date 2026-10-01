@@ -147,3 +147,14 @@ npm test
 ```
 
 集成测试会启动一个按官方源路径提供样例数据的本地服务，完整执行所有抓取任务后逐个请求接口。
+
+### e2e 一致性检查
+
+对真实官方源与 BMCLAPI 做端到端比对（需要联网）：
+
+```sh
+MONGODB_URI=mongodb://127.0.0.1:27017/haru-e2e npm run e2e -- --sync
+npm run e2e -- --only=forge,neoforge --no-bmclapi    # 只查部分范围、跳过 BMCLAPI
+```
+
+逐项输出 PASS / WARN / FAIL，详细差异写入 JSON 报告（默认 `<tmpdir>/haru-e2e-report.json`），有 FAIL 时退出码为 1。对 BMCLAPI 的请求串行、间隔 1.2 秒，并遵守其限流。
