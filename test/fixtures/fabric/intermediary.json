@@ -1,0 +1,27 @@
+[
+  {
+    "maven": "net.fabricmc:intermediary:26.4-snapshot-2",
+    "stable": true,
+    "version": "26.4-snapshot-2"
+  },
+  {
+    "maven": "net.fabricmc:intermediary:26.4-snapshot-1",
+    "stable": true,
+    "version": "26.4-snapshot-1"
+  },
+  {
+    "maven": "net.fabricmc:intermediary:26.3",
+    "stable": true,
+    "version": "26.3"
+  },
+  {
+    "maven": "net.fabricmc:intermediary:26.3-rc-3",
+    "stable": true,
+    "version": "26.3-rc-3"
+  },
+  {
+    "maven": "net.fabricmc:intermediary:26.3-rc-2",
+    "stable": true,
+    "version": "26.3-rc-2"
+  }
+]
