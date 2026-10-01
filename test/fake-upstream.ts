@@ -100,16 +100,14 @@ export async function startFakeUpstream(): Promise<FakeUpstream> {
   add('/forge-files/net/minecraftforge/forge/maven-metadata.json', read('forge/maven-metadata.json'), 'application/json')
   add('/forge-files/net/minecraftforge/forge/promotions_slim.json', read('forge/promotions_slim.json'), 'application/json')
   const forgeVersions = JSON.parse(read('forge/maven-metadata.json').toString('utf8')) as Record<string, string[]>
-  let year = 2012
-  for (const list of Object.values(forgeVersions)) {
+  for (const [mc, list] of Object.entries(forgeVersions)) {
+    add(`/forge-files/net/minecraftforge/forge/index_${mc}.html`, read(`forge/index_${mc}.html`), 'text/html; charset=utf-8')
     for (const lv of list) {
       const meta = read(`forge/meta/${lv}.json`)
-      add(`/forge-files/net/minecraftforge/forge/${lv}/meta.json`, meta, 'application/json')
-      const lastModified = new Date(Date.UTC(year++, 5, 1)).toUTCString()
       const classifiers = (JSON.parse(meta.toString('utf8')) as { classifiers: Record<string, Record<string, string>> }).classifiers
       for (const [category, exts] of Object.entries(classifiers)) {
         for (const ext of Object.keys(exts)) {
-          add(`/forge-maven/net/minecraftforge/forge/${lv}/forge-${lv}-${category}.${ext}`, `fake forge ${lv} ${category}`, 'application/java-archive', lastModified)
+          add(`/forge-maven/net/minecraftforge/forge/${lv}/forge-${lv}-${category}.${ext}`, `fake forge ${lv} ${category}`, 'application/java-archive')
         }
       }
     }

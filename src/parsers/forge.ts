@@ -44,18 +44,39 @@ export function parseForgeLongVersion(longVersion: string, mcKey?: string): Pars
   }
 }
 
-/** Forge `meta.json`: { classifiers: { installer: { jar: "<md5>" }, ... } } -> BMCLAPI `files` */
-export function forgeFilesFromMeta(meta: unknown): ForgeFile[] {
-  const classifiers = (meta as { classifiers?: Record<string, Record<string, unknown>> } | null)?.classifiers
-  if (!classifiers || typeof classifiers !== 'object') return []
-  const files: ForgeFile[] = []
-  for (const [category, exts] of Object.entries(classifiers)) {
-    if (!exts || typeof exts !== 'object') continue
-    for (const [format, hash] of Object.entries(exts)) {
-      files.push({ format, category, hash: typeof hash === 'string' ? hash.replace(/\W/g, '') : '' })
+export interface ForgeIndexEntry {
+  /** release time (the page shows it in UTC) */
+  modified: Date
+  files: ForgeFile[]
+}
+
+/**
+ * Parses https://files.minecraftforge.net/net/minecraftforge/forge/index_<mc>.html into release time and
+ * files (with their sha1) by maven version. Rows look like:
+ *   <tr>
+ *     <td class="download-version"> 47.2.0 </td>
+ *     <td class="download-time" title="2023-09-21 10:54:04">2023-09-21</td>
+ *     <td class="download-files"> <ul class="download-links">
+ *       <li> <a href="https://maven.minecraftforge.net/net/minecraftforge/forge/1.20.1-47.2.0/forge-1.20.1-47.2.0-changelog.txt">…</a>
+ *         <div class="info-tooltip"> <strong>MD5:</strong> 3392…<br> <strong>SHA1:</strong> a2e1… </div> </li>
+ *       …
+ */
+export function parseForgeIndex(html: string): Map<string, ForgeIndexEntry> {
+  const builds = new Map<string, ForgeIndexEntry>()
+  for (const row of html.split(/<tr\b/i).slice(1)) {
+    const time = /class="download-time"\s+title="([^"]+)"/i.exec(row)?.[1]
+    if (!time) continue
+    let longVersion: string | undefined
+    const files: ForgeFile[] = []
+    for (const li of row.split(/<li\b/i).slice(1)) {
+      const link = /\/net\/minecraftforge\/forge\/([^/"]+)\/forge-\1-([^/"]+)\.([a-z0-9]+)"/i.exec(li)
+      if (!link) continue
+      longVersion ??= link[1]
+      files.push({ format: link[3] as string, category: link[2] as string, hash: /SHA1:<\/strong>\s*([0-9a-f]{40})/i.exec(li)?.[1] ?? '' })
     }
+    if (longVersion) builds.set(longVersion, { modified: new Date(`${time.replace(' ', 'T')}Z`), files })
   }
-  return files
+  return builds
 }
 
 /** maven directory + file name of a Forge artifact: net/minecraftforge/forge/<lv>/forge-<lv>-<category>.<format> */

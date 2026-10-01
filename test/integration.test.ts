@@ -123,9 +123,9 @@ describe('forge', () => {
     const [b] = (await get('/forge/minecraft/1.20.1')).json()
     expect(b).toMatchObject({ __v: 0, mcversion: '1.20.1', version: '47.2.0', branch: null })
     expect(b._id).toMatch(/^[0-9a-f]{24}$/)
-    expect(b.build).toBeGreaterThan(2847)
-    expect(b.files).toContainEqual({ format: 'jar', category: 'installer', hash: '1279b07bb259cf51a1c0d02036485565' })
-    expect(new Date(b.modified).getUTCFullYear()).toBe(2016)
+    expect(b.build).toBe(47020000)
+    expect(b.files).toContainEqual({ format: 'jar', category: 'installer', hash: 'ded43dd18b3a1dd5098b114c28432224d72bd9f7' })
+    expect(b.modified).toBe('2023-09-21T10:54:04.000Z')
 
     const [legacy] = (await get('/forge/minecraft/1.7.10')).json()
     expect(legacy).toMatchObject({ build: 1614, version: '10.13.4.1614', branch: '1.7.10' })

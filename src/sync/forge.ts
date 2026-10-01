@@ -1,16 +1,7 @@
 import { ObjectId } from 'mongodb'
 import type { ForgeBuildEntry, ForgeFile } from '../db/models.js'
-import { header } from '../http/client.js'
 import { mapLimit } from '../http/limiter.js'
-import {
-  forgeArtifactPath,
-  forgeFilesFromMeta,
-  parseForgeLongVersion,
-  parsePromoKey,
-  preferredForgeFile,
-  type ParsedForgeVersion,
-} from '../parsers/forge.js'
-import { compareVersions } from '../parsers/version.js'
+import { parseForgeIndex, parseForgeLongVersion, parsePromoKey, type ForgeIndexEntry, type ParsedForgeVersion } from '../parsers/forge.js'
 import { storedDoc } from './mojang.js'
 import { UpstreamFormatError, type SyncFn } from './types.js'
 
@@ -22,15 +13,14 @@ interface FetchedBuild {
   parsed: ParsedForgeVersion
   files: ForgeFile[]
   modified: Date
-  build?: number
+  build: number
 }
 
 /**
  * Forge, from files.minecraftforge.net:
  *  - maven-metadata.json (minecraft version -> forge versions)
  *  - promotions_slim.json (latest / recommended)
- *  - <version>/meta.json for every new version (classifiers + md5), release time from the
- *    Last-Modified of the main artifact on maven.minecraftforge.net
+ *  - index_<mc>.html of every minecraft version with new versions (release time, files and their sha1)
  */
 export const syncForge: SyncFn = async (ctx, log) => {
   const { http, docs, db, config } = ctx
@@ -50,53 +40,39 @@ export const syncForge: SyncFn = async (ctx, log) => {
   const all = Object.entries(mm).flatMap(([mc, list]) => (Array.isArray(list) ? list : []).map((lv) => ({ mc, lv })))
   stats.versions = all.length
   const known = new Set(await db.forgeBuilds.distinct('longVersion'))
+  const pending = all.filter((v) => !known.has(v.lv))
 
-  const fetched = await mapLimit(
-    all.filter((v) => !known.has(v.lv)),
-    config.http.concurrency,
-    async ({ mc, lv }): Promise<FetchedBuild | null> => {
-      const parsed = parseForgeLongVersion(lv, mc)
-      if (!parsed) {
-        stats.errors++
-        log.warn({ version: lv }, 'unparsable forge version')
-        return null
-      }
-      try {
-        const meta = await http.fetch(`${up.forgeFiles}${FORGE_BASE}/${lv}/meta.json`, { accept: [404] })
-        const files = meta.status === 200 ? forgeFilesFromMeta(JSON.parse(meta.body.toString('utf8'))) : []
-        const main = preferredForgeFile(files)
-        let lastModified: string | undefined
-        if (main) {
-          const head = await http.head(`${up.forgeMaven}/${forgeArtifactPath(lv, main.category, main.format)}`, { accept: [404] })
-          lastModified = head.status === 200 ? header(head.headers, 'last-modified') : undefined
-          lastModified ??= header(meta.headers, 'last-modified')
-        }
-        // clients parse `modified` as a date, so fall back to the time the build was first seen
-        return { longVersion: lv, parsed, files, modified: lastModified ? new Date(lastModified) : new Date() }
-      } catch (err) {
-        stats.errors++
-        log.warn({ err, version: lv }, 'failed to fetch forge version meta')
-        return null
-      }
-    },
-  )
-  const added = fetched.filter((b): b is FetchedBuild => b !== null)
-
-  // Legacy (4-component) versions keep their Jenkins build number; newer versions, which have
-  // none, continue the sequence in release order so that /forge/download/:build stays unique.
-  const used = new Set<number>(await db.forgeBuilds.distinct('build'))
-  let maxBuild = Math.max(0, ...used)
-  for (const b of added) {
-    if (b.parsed.legacy && !used.has(b.parsed.lastComponent)) {
-      b.build = b.parsed.lastComponent
-      used.add(b.build)
-      maxBuild = Math.max(maxBuild, b.build)
+  const pages = new Map<string, Map<string, ForgeIndexEntry>>()
+  await mapLimit([...new Set(pending.map((v) => v.mc))], config.http.concurrency, async (mc) => {
+    try {
+      pages.set(mc, parseForgeIndex(await http.getText(`${up.forgeFiles}${FORGE_BASE}/index_${mc}.html`)))
+    } catch (err) {
+      stats.errors++
+      log.warn({ err, mcversion: mc }, 'failed to fetch forge index page')
     }
-  }
-  for (const b of added
-    .filter((x) => x.build === undefined)
-    .sort((a, b) => a.modified.getTime() - b.modified.getTime() || compareVersions(a.longVersion, b.longVersion))) {
-    b.build = ++maxBuild
+  })
+
+  const added: FetchedBuild[] = []
+  for (const { mc, lv } of pending) {
+    const parsed = parseForgeLongVersion(lv, mc)
+    if (!parsed) {
+      stats.errors++
+      log.warn({ version: lv }, 'unparsable forge version')
+      continue
+    }
+    const page = pages.get(mc)
+    if (!page) continue
+    const entry = page.get(lv)
+    if (!entry) {
+      stats.errors++
+      log.warn({ version: lv }, 'forge version missing from its index page')
+      continue
+    }
+    // Legacy (4-component) versions keep their Jenkins build number; newer versions, which have
+    // none, are numbered the way BMCLAPI does: 47.2.0 -> 47020000.
+    const [major = 0, minor = 0, patch = 0] = parsed.version.split('.').map(Number)
+    const build = parsed.legacy ? parsed.lastComponent : major * 1_000_000 + minor * 10_000 + patch
+    added.push({ longVersion: lv, parsed, files: entry.files, modified: entry.modified, build })
   }
 
   if (added.length) {
@@ -106,7 +82,7 @@ export const syncForge: SyncFn = async (ctx, log) => {
         (b): ForgeBuildEntry => ({
           _id: new ObjectId(),
           __v: 0,
-          build: b.build as number,
+          build: b.build,
           mcversion: b.parsed.mcversion,
           version: b.parsed.version,
           branch: b.parsed.branch,

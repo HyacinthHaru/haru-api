@@ -15,7 +15,6 @@
  *                       authlib-injector, files, endpoints (default: all)
  *   --no-bmclapi        skip the comparisons with BMCLAPI
  *   --bmclapi=<origin>  default https://bmclapi2.bangbang93.com
- *   --forge-samples=N   Forge builds whose meta.json is re-fetched (default 60)
  *   --report=<file>     JSON report (default <tmpdir>/haru-e2e-report.json)
  *
  * BMCLAPI is a free community service: its requests are sequential, spaced and rate-limit aware.
@@ -49,7 +48,6 @@ const areas = new Set((option('only')?.split(',').map((s) => s.trim()) ?? [...AR
 for (const a of areas) if (!AREAS.includes(a)) throw new Error(`unknown area: ${a}`)
 const withBmclapi = !flag('no-bmclapi')
 const BMCLAPI = (option('bmclapi') ?? 'https://bmclapi2.bangbang93.com').replace(/\/+$/, '')
-const FORGE_SAMPLES = Number(option('forge-samples') ?? 60)
 const REPORT = option('report') ?? join(tmpdir(), 'haru-e2e-report.json')
 
 if (existsSync('.env')) process.loadEnvFile('.env')
@@ -407,14 +405,18 @@ const bmclapiForgeBuild = (version: string) => {
   return major * 1_000_000 + minor * 10_000 + patch
 }
 
-/** Release times on files.minecraftforge.net/net/minecraftforge/forge/index_<mc>.html, by version. */
-function parseForgeIndex(html: string): Map<string, Date> {
-  const times = new Map<string, Date>()
-  for (const m of html.matchAll(/class="download-version">\s*([^<\s]+)[\s\S]*?class="download-time" title="([^"]+)"/g)) {
-    const [, version, time] = m
-    if (version && time) times.set(version, new Date(`${time.replace(' ', 'T')}Z`))
+/** Release time and files ("installer.jar:<sha1>") of a build on files.minecraftforge.net/net/minecraftforge/forge/index_<mc>.html. */
+function forgePageEntry(html: string, longVersion: string): { time: Date; files: string[] } | undefined {
+  const marker = `/forge/${longVersion}/forge-${longVersion}-`
+  const row = html.split('<tr').find((r) => r.includes(marker) && r.includes('download-time'))
+  const time = row && /class="download-time" title="([^"]+)"/.exec(row)?.[1]
+  if (!row || !time) return undefined
+  const files = new Set<string>()
+  for (const li of row.split('<li').slice(1)) {
+    const at = li.indexOf(marker)
+    if (at >= 0) files.add(`${li.slice(at + marker.length, li.indexOf('"', at))}:${/SHA1:<\/strong>\s*([0-9a-f]{40})/.exec(li)?.[1] ?? ''}`)
   }
-  return times
+  return { time: new Date(`${time.replace(' ', 'T')}Z`), files: [...files].sort() }
 }
 
 async function forgeChecks(): Promise<void> {
@@ -449,21 +451,6 @@ async function forgeChecks(): Promise<void> {
     return !onlyA.length && !onlyB.length && !duplicates ? pass(`${listed.length} builds`) : fail('different', { onlyList: onlyA, onlyMinecraft: onlyB, duplicates })
   })
 
-  await check('forge', 'official', `files (category/format/md5) of ${FORGE_SAMPLES} sampled builds match meta.json`, async () => {
-    const sorted = [...ours].sort((a, b) => forgeKey(a).localeCompare(forgeKey(b)))
-    const n = Math.min(FORGE_SAMPLES, sorted.length)
-    const picks = Array.from({ length: n }, (_, i) => sorted[Math.floor((i * sorted.length) / n)] as ForgeJson)
-    const bad: unknown[] = []
-    for (const b of picks) {
-      const res = await official(`${up.forgeFiles}/net/minecraftforge/forge/${forgeKey(b)}/meta.json`)
-      const classifiers = res.status === 200 ? ((JSON.parse(res.body.toString('utf8')) as { classifiers?: Record<string, Record<string, string>> }).classifiers ?? {}) : {}
-      const expected = Object.entries(classifiers).flatMap(([c, exts]) => Object.entries(exts).map(([f, h]) => `${c}.${f}:${h}`)).sort()
-      const got = b.files.map((f) => `${f.category}.${f.format}:${f.hash}`).sort()
-      if (!isDeepStrictEqual(got, expected)) bad.push({ build: forgeKey(b), haru: got, official: expected })
-    }
-    return bad.length ? fail(`${bad.length} of ${n} differ`, bad.slice(0, 20)) : pass(`${n}/${n}`)
-  })
-
   await check('forge', 'official', '/forge/promos matches promotions_slim.json', async () => {
     const promos = (await officialJson<{ promos: Record<string, string> }>(`${up.forgeFiles}/net/minecraftforge/forge/promotions_slim.json`)).promos
     const served = new Map((await haru('/forge/promos')).json<PromoJson[]>().map((p) => [p.name, p]))
@@ -477,20 +464,23 @@ async function forgeChecks(): Promise<void> {
     return bad.length ? fail(`${bad.length} differences`, bad) : pass(`same ${Object.keys(promos).length} promotions`)
   })
 
-  await check('forge', 'official', 'modified matches the release time on files.minecraftforge.net (sampled Minecraft versions, within a day)', async () => {
-    const sample = [...new Set(['1.7.10', '1.12.2', '1.16.5', '1.20.1', mcs.at(-1) ?? '1.20.1'])].filter((mc) => mcs.includes(mc))
-    const rows: { build: string; haru: string | null; official: string; days: number }[] = []
+  const sample = [...new Set(['1.7.10', '1.12.2', '1.16.5', '1.20.1', mcs.at(-1) ?? '1.20.1'])].filter((mc) => mcs.includes(mc))
+  await check('forge', 'official', `release time and files (sha1) match files.minecraftforge.net (${sample.join(', ')})`, async () => {
+    const bad: unknown[] = []
+    let n = 0
     for (const mc of sample) {
-      const times = parseForgeIndex((await official(`${up.forgeFiles}/net/minecraftforge/forge/index_${mc}.html`)).body.toString('utf8'))
+      const html = (await official(`${up.forgeFiles}/net/minecraftforge/forge/index_${mc}.html`)).body.toString('utf8')
       for (const b of ours.filter((x) => x.mcversion === mc)) {
-        const t = times.get(b.version) ?? times.get(`${b.version}-${b.branch}`)
-        if (t) rows.push({ build: forgeKey(b), haru: b.modified, official: t.toISOString(), days: Math.round(days(b.modified, t) * 10) / 10 })
+        n++
+        const page = forgePageEntry(html, forgeKey(b))
+        const files = b.files.map((f) => `${f.category}.${f.format}:${f.hash}`).sort()
+        if (!page) bad.push({ build: forgeKey(b), problem: 'not on the page' })
+        else if (b.modified !== page.time.toISOString() || !isDeepStrictEqual(files, page.files)) {
+          bad.push({ build: forgeKey(b), haru: { modified: b.modified, files }, official: { modified: page.time.toISOString(), files: page.files } })
+        }
       }
     }
-    const off = rows.filter((r) => r.days > 1).sort((a, b) => b.days - a.days)
-    if (!rows.length) return fail('no release time found on the official pages')
-    const summary = `${off.length} of ${rows.length} builds off by more than a day (${sample.join(', ')})`
-    return off.length ? fail(summary, { worst: off.slice(0, 15), medianDaysOff: off[Math.floor(off.length / 2)]?.days }) : pass(`${rows.length} builds (${sample.join(', ')})`)
+    return bad.length ? fail(`${bad.length} of ${n} builds differ`, bad.slice(0, 15)) : pass(`${n} builds`)
   })
 
   // ---- BMCLAPI
@@ -945,11 +935,11 @@ async function fileChecks(): Promise<void> {
     return ok ? pass(`${lib.path} (${lib.size} B)`) : fail('different', { libraries: a.status, maven: b.status })
   })
 
-  await check('files', 'official', 'Forge download (/forge/download?…&category=changelog&format=txt) matches the md5 of meta.json', async () => {
+  await check('files', 'official', 'Forge download (/forge/download?…&category=changelog&format=txt) matches the listed sha1', async () => {
     const b = (await haru('/forge/minecraft/1.20.1')).json<ForgeJson[]>().find((x) => x.version === '47.2.0')
-    const md5 = b?.files.find((f) => f.category === 'changelog' && f.format === 'txt')?.hash
+    const sha1 = b?.files.find((f) => f.category === 'changelog' && f.format === 'txt')?.hash
     const r = await haru('/forge/download?mcversion=1.20.1&version=47.2.0&category=changelog&format=txt')
-    return r.status === 200 && md5 === md5Hex(r.body) ? pass(`${r.body.length} B, md5 ${md5}`) : fail(`HTTP ${r.status}, md5 ${md5Hex(r.body)}, expected ${md5}`)
+    return r.status === 200 && sha1 === sha1Hex(r.body) ? pass(`${r.body.length} B, sha1 ${sha1}`) : fail(`HTTP ${r.status}, sha1 ${sha1Hex(r.body)}, expected ${sha1}`)
   })
 
   await check('files', 'official', 'authlib-injector jar matches the sha256 of latest.json', async () => {

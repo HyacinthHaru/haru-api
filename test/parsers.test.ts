@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { forgeFilesFromMeta, parseForgeLongVersion, parsePromoKey, preferredForgeFile } from '../src/parsers/forge.js'
+import { parseForgeIndex, parseForgeLongVersion, parsePromoKey, preferredForgeFile } from '../src/parsers/forge.js'
 import { parseLiteLoaderVersions } from '../src/parsers/liteloader.js'
 import { neoforgeMcVersion, parseNeoForgeVersion } from '../src/parsers/neoforge.js'
 import { parseAdloadx, parseOptiFineDownloads, parseOptiFineFilename } from '../src/parsers/optifine.js'
@@ -43,14 +43,16 @@ describe('forge', () => {
     expect(parseForgeLongVersion('garbage')).toBeNull()
   })
 
-  it('maps meta.json classifiers to files', () => {
-    const files = forgeFilesFromMeta(JSON.parse(read('forge/meta/1.20.1-47.2.0.json').toString()))
-    expect(files).toContainEqual({ format: 'jar', category: 'installer', hash: '1279b07bb259cf51a1c0d02036485565' })
-    expect(files).toContainEqual({ format: 'txt', category: 'changelog', hash: '33920c65e80638079c133c9237241f7e' })
-    expect(preferredForgeFile(files)).toMatchObject({ category: 'installer', format: 'jar' })
+  it('parses the minecraft version pages', () => {
+    const b = parseForgeIndex(read('forge/index_1.20.1.html').toString()).get('1.20.1-47.2.0')
+    expect(b?.modified).toEqual(new Date('2023-09-21T10:54:04Z'))
+    expect(b?.files).toContainEqual({ format: 'jar', category: 'installer', hash: 'ded43dd18b3a1dd5098b114c28432224d72bd9f7' })
+    expect(b?.files).toContainEqual({ format: 'txt', category: 'changelog', hash: 'a2e18aee36f1d546907e5a6f624b816d06b5c70f' })
+    expect(preferredForgeFile(b?.files ?? [])).toMatchObject({ category: 'installer', format: 'jar' })
 
-    const old = forgeFilesFromMeta(JSON.parse(read('forge/meta/1.1-1.3.2.1.json').toString()))
-    expect(preferredForgeFile(old)).toMatchObject({ category: 'client', format: 'zip' })
+    const old = parseForgeIndex(read('forge/index_1.1.html').toString()).get('1.1-1.3.2.1')
+    expect(preferredForgeFile(old?.files ?? [])).toMatchObject({ category: 'client', format: 'zip' })
+    expect(parseForgeIndex(read('forge/index_1.7.10_pre4.html').toString()).has('1.7.10_pre4-10.12.2.1149-prerelease')).toBe(true)
   })
 
   it('parses promotion keys', () => {

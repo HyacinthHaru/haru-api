@@ -35,7 +35,7 @@ npm run sync -- forge optifine
 | --- | --- | --- | --- |
 | `mojang` | piston-meta.mojang.com | `version_manifest.json`、`version_manifest_v2.json`、所有版本 JSON 与 asset index（按 sha1 校验，原样保存） | 10 分钟 |
 | `java` | piston-meta.mojang.com | Java 运行时 `all.json` 及各运行时 `manifest.json` | 6 小时 |
-| `forge` | files.minecraftforge.net、maven.minecraftforge.net | `maven-metadata.json`、`promotions_slim.json`，每个版本的 `meta.json`（文件分类与 md5）及发布时间 | 30 分钟 |
+| `forge` | files.minecraftforge.net | `maven-metadata.json`、`promotions_slim.json`，各 Minecraft 版本页面上每个版本的发布时间与文件（sha1） | 30 分钟 |
 | `neoforge` | maven.neoforged.net | `net.neoforged:neoforge` 与 `net.neoforged:forge`（1.20.1）的版本列表 | 30 分钟 |
 | `optifine` | optifine.net/downloads | 全部版本（含预览版）、适配的 Forge 版本、发布日期 | 60 分钟 |
 | `liteloader` | dl.liteloader.com | `versions.json` 及其中每个版本 | 1 天 |
@@ -78,14 +78,14 @@ npm run sync -- forge optifine
   "__v": 0,
   "build": 1614,
   "branch": "1.7.10",
-  "files": [{ "format": "jar", "category": "installer", "hash": "<md5>" }],
+  "files": [{ "format": "jar", "category": "installer", "hash": "<sha1>" }],
   "mcversion": "1.7.10",
   "modified": "2016-…Z",
   "version": "10.13.4.1614"
 }
 ```
 
-`build` 对旧版本（四段版本号）是官方构建号；新版本没有构建号，按发布顺序在其后递增编号。
+`build` 对旧版本（四段版本号）是官方构建号；新版本没有构建号，与 BMCLAPI 一样记为 `主版本 × 1000000 + 次版本 × 10000 + 修订号`（如 47.2.0 → 47020000）。
 
 ### NeoForge
 
