@@ -37,7 +37,7 @@ npm run sync -- forge optifine
 | `java` | piston-meta.mojang.com | Java 运行时 `all.json` 及各运行时 `manifest.json` | 6 小时 |
 | `forge` | files.minecraftforge.net | `maven-metadata.json`、`promotions_slim.json`，各 Minecraft 版本页面上每个版本的发布时间与文件（sha1） | 30 分钟 |
 | `neoforge` | maven.neoforged.net | `net.neoforged:neoforge` 与 `net.neoforged:forge`（1.20.1）的版本列表 | 30 分钟 |
-| `optifine` | optifine.net/downloads | 全部版本（含预览版）、适配的 Forge 版本、发布日期 | 60 分钟 |
+| `optifine` | optifine.net/downloads | 全部版本（含预览版）、适配的 Forge 版本、发布日期；官网下架的版本保留 | 60 分钟 |
 | `liteloader` | dl.liteloader.com | `versions.json` 及其中每个版本 | 1 天 |
 | `fabric` | meta.fabricmc.net | `/v2/versions` 下的各版本列表 | 30 分钟 |
 | `authlib-injector` | authlib-injector.yushi.moe | `artifacts.json`、`artifact/latest.json`、`artifact/<build>.json` | 6 小时 |

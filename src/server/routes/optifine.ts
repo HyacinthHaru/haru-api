@@ -22,6 +22,8 @@ export function optifineTarget(ctx: AppContext, e: OptiFineEntry): FileTarget {
   return {
     key: `optifine/${e.filename}`,
     filename: e.filename,
+    // downloadx answers 200 "File not found" for versions optifine.net no longer has
+    htmlMeansMissing: true,
     urls: async () => {
       const html = await ctx.http.getText(`${base}/adloadx?f=${encodeURIComponent(e.filename)}`, {
         headers: { accept: 'text/html' },

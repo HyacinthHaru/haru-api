@@ -16,6 +16,8 @@ export interface FileTarget {
   sha1?: string | undefined
   /** Content-Disposition file name */
   filename?: string | undefined
+  /** upstream answers missing files with an HTML page and status 200 */
+  htmlMeansMissing?: boolean
 }
 
 /** Path after `prefix` (still percent-encoded) and its decoded form; null if it tries to escape. */
@@ -158,9 +160,10 @@ export class FileMirror {
         failed = true
         continue
       }
-      if (res.status === 200) return this.sendUpstream(reply, res, target)
+      const missing = target.htmlMeansMissing && /^text\/html/i.test(header(res.headers, 'content-type') ?? '')
+      if (res.status === 200 && !missing) return this.sendUpstream(reply, res, target)
       await res.body.dump()
-      if (res.status !== 404 && res.status !== 403 && res.status !== 410) failed = true
+      if (res.status !== 200 && res.status !== 404 && res.status !== 403 && res.status !== 410) failed = true
     }
     if (failed) return reply.code(502).send({ statusCode: 502, error: 'Bad Gateway', message: 'upstream request failed' })
     return notFound(reply)

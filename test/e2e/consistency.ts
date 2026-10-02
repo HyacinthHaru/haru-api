@@ -708,12 +708,13 @@ interface OptiFineJson {
 async function optifineChecks(): Promise<void> {
   const ours = (await haru('/optifine/versionList')).json<OptiFineJson[]>()
 
-  await check('optifine', 'official', 'versions match optifine.net/downloads', async () => {
+  const listed = new Set<string>()
+  await check('optifine', 'official', 'every version on optifine.net/downloads is listed', async () => {
     const html = (await official(`${up.optifine}/downloads`)).body.toString('utf8')
-    const files = [...html.matchAll(/[?&](?:amp;)?f=([^"'&\s<>]+?\.jar)/gi)].map((m) => decodeURIComponent(m[1] ?? ''))
-    const { onlyA, onlyB } = setDiff(files, ours.map((e) => e.filename))
-    const n = new Set(files).size
-    return !onlyA.length && !onlyB.length ? pass(`same ${n} files`) : fail(`haru lacks ${onlyA.length} and has ${onlyB.length} extra (page: ${n})`, { onlyOfficial: onlyA, onlyHaru: onlyB })
+    for (const m of html.matchAll(/[?&](?:amp;)?f=([^"'&\s<>]+?\.jar)/gi)) listed.add(decodeURIComponent(m[1] ?? ''))
+    // haru keeps the versions the page no longer lists
+    const { onlyA, onlyB } = setDiff(listed, ours.map((e) => e.filename))
+    return onlyA.length ? fail(`haru lacks ${onlyA.length} of ${listed.size}`, { onlyOfficial: onlyA }) : pass(`all ${listed.size}, plus ${onlyB.length} no longer listed`)
   })
 
   await check('optifine', 'official', 'mcversion/type/patch add up to the file name', async () => {
@@ -721,7 +722,6 @@ async function optifineChecks(): Promise<void> {
     return bad.length ? fail(`${bad.length} differ`, bad) : pass(`all ${ours.length}`)
   })
 
-  let historical: OptiFineJson[] = []
   await check('optifine', 'bmclapi', '/optifine/versionList matches BMCLAPI', async () => {
     const t = await bmclapi.json<OptiFineJson[]>('/optifine/versionList')
     const tm = new Map(t.map((e) => [e.filename, e]))
@@ -736,41 +736,24 @@ async function optifineChecks(): Promise<void> {
       .filter((f) => tm.get(f)?.forge !== undefined && tm.get(f)?.forge !== om.get(f)?.forge)
       .map((f) => ({ filename: f, bmclapi: tm.get(f)?.forge, haru: om.get(f)?.forge }))
     const forgeMissingInBmclapi = both.filter((f) => tm.get(f)?.forge === undefined).length
-    historical = onlyA.map((f) => tm.get(f) as OptiFineJson)
-    const onlyBmclapiReleases = onlyA.filter((f) => !f.startsWith('preview_'))
     const summary =
-      `BMCLAPI ${t.length} / haru ${ours.length}, ${both.length} in common, ${onlyA.length} only in BMCLAPI (${onlyBmclapiReleases.length} releases), ${onlyB.length} only in haru; ` +
+      `BMCLAPI ${t.length} / haru ${ours.length}, ${both.length} in common, ${onlyA.length} only in BMCLAPI, ${onlyB.length} only in haru; ` +
       `mcversion/type/patch differ for ${fieldDiff.length}; forge differs for ${forgeDiff.length} (missing in BMCLAPI for ${forgeMissingInBmclapi})`
     const details = { onlyBmclapi: onlyA.slice(0, 40), onlyHaru: onlyB, fieldDiff, forgeDiff: forgeDiff.slice(0, 20) }
-    if (onlyB.length || fieldDiff.length || onlyBmclapiReleases.length) return fail(summary, details)
-    return onlyA.length || forgeDiff.length ? warn(summary, details) : pass(summary)
+    if (onlyA.length || fieldDiff.length) return fail(summary, details)
+    return onlyB.length || forgeDiff.length ? warn(summary, details) : pass(summary)
   })
 
-  await check('optifine', 'bmclapi', 'versions only BMCLAPI lists are still downloadable upstream (2 sampled)', async () => {
-    if (!historical.length) return pass('BMCLAPI lists nothing haru lacks')
-    const rows: unknown[] = []
-    let downloadable = 0
-    for (const e of [historical[0], historical.at(-1)].filter((x): x is OptiFineJson => x !== undefined)) {
-      const page = (await official(`${up.optifine}/adloadx?f=${encodeURIComponent(e.filename)}`)).body.toString('utf8')
-      const link = /downloadx\?f=[^"'\s<>]+/i.exec(page)?.[0]?.replace(/&amp;/g, '&')
-      let status: number | null = null
-      let contentType: string | undefined
-      let isJar = false
-      if (link) {
-        // downloadx answers 200 text/html ("File not found") for files it no longer has: look at the first bytes
-        const res = await ctx.http.open(`${up.optifine}/${link}`)
-        status = res.status
-        contentType = header(res.headers, 'content-type')
-        const first = (await res.body[Symbol.asyncIterator]().next()).value as Buffer | undefined
-        res.body.destroy()
-        isJar = first?.subarray(0, 2).toString('latin1') === 'PK'
-      }
-      if (isJar) downloadable++
-      rows.push({ filename: e.filename, link: Boolean(link), status, contentType, isJar })
+  await check('optifine', 'official', 'versions optifine.net no longer lists download as a jar or 404, never as an HTML page (2 sampled)', async () => {
+    const gone = ours.filter((e) => !listed.has(e.filename))
+    if (!listed.size || !gone.length) return pass('nothing to check')
+    const rows: { filename: string; status: number; jar: boolean }[] = []
+    for (const e of [gone[0], gone.at(-1)].filter((x): x is OptiFineJson => x !== undefined)) {
+      const r = await haru(`/optifine/${e.mcversion}/${e.type}/${e.patch}`)
+      rows.push({ filename: e.filename, status: r.status, jar: r.body.subarray(0, 2).toString('latin1') === 'PK' })
     }
-    return downloadable
-      ? warn(`${downloadable} of ${rows.length} still downloadable from optifine.net`, rows)
-      : pass('no longer downloadable from optifine.net', rows)
+    const bad = rows.filter((r) => r.status !== 404 && !(r.status === 200 && r.jar))
+    return bad.length ? fail(`${bad.length} of ${rows.length} wrong`, rows) : pass(rows.map((r) => `${r.filename}: ${r.status}`).join(', '), rows)
   })
 }
 

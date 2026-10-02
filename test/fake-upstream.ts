@@ -151,6 +151,8 @@ export async function startFakeUpstream(): Promise<FakeUpstream> {
 
   // OptiFine (downloads page; adloadx/downloadx are handled below)
   add('/optifine/downloads', read('optifine/downloads.html'), 'text/html; charset=utf-8')
+  // a preview optifine.net no longer has: downloadx answers it with an HTML page
+  const removedPreview = 'preview_OptiFine_1.14_HD_U_F1_pre6.jar'
 
   // LiteLoader
   add('/liteloader/versions/versions.json', read('liteloader/versions.json'), 'application/json')
@@ -177,6 +179,10 @@ export async function startFakeUpstream(): Promise<FakeUpstream> {
       return
     }
     if (url.pathname === '/optifine/downloadx' && url.searchParams.get('x') === OPTIFINE_TOKEN) {
+      if (f === removedPreview) {
+        res.writeHead(200, { 'content-type': 'text/html;charset=ISO-8859-1' }).end('File not found')
+        return
+      }
       const body = Buffer.from(`fake optifine ${f}`)
       res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-length': body.length })
       res.end(req.method === 'HEAD' ? undefined : body)

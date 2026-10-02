@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { ObjectId } from 'mongodb'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { ALL_SYNC_TASKS, loadConfig } from '../src/config.js'
 import { closeContext, createContext, type AppContext } from '../src/context.js'
@@ -225,6 +226,33 @@ describe('optifine', () => {
     expect(preview.body).toBe('fake optifine preview_OptiFine_1.20.4_HD_U_I7_pre3.jar')
     expect((await get('/maven/com/optifine/preview_1.20.4/OptiFine_1.20.4_HD_U_I7_pre3.jar')).body).toBe(preview.body)
     expect((await get('/optifine/1.20.1/HD_U/Z9')).statusCode).toBe(404)
+
+    // a version optifine.net no longer has, added by hand: downloadx answers it with a "File not found" page
+    const now = new Date()
+    await ctx.db.optifine.insertOne({
+      _id: new ObjectId(),
+      __v: 0,
+      mcversion: '1.14',
+      type: 'HD_U_F1',
+      patch: 'pre6',
+      filename: 'preview_OptiFine_1.14_HD_U_F1_pre6.jar',
+      forge: 'Forge N/A',
+      date: null,
+      preview: true,
+      order: 1_000_000,
+      createdAt: now,
+      updatedAt: now,
+    })
+    expect((await get('/optifine/1.14/HD_U_F1/pre6')).statusCode).toBe(404)
+    expect(await ctx.files.find('optifine/preview_OptiFine_1.14_HD_U_F1_pre6.jar')).toBeNull()
+  })
+
+  it('keeps versions no longer listed on the downloads page', async () => {
+    const page = fake.routes.get('/optifine/downloads')!
+    fake.routes.set('/optifine/downloads', { ...page, body: Buffer.from(page.body.toString().replace(/<h2>Minecraft 1\.8\.0<\/h2>[\s\S]*?<\/table>/, '')) })
+    await new SyncRunner(ctx).run('optifine')
+    fake.routes.set('/optifine/downloads', page)
+    expect((await get('/optifine/1.8.0')).json()).toHaveLength(1)
   })
 })
 
@@ -284,7 +312,7 @@ describe('status', () => {
     expect(status.tasks.map((t: { name: string; status: string }) => [t.name, t.status])).toEqual(
       ALL_SYNC_TASKS.map((t) => [t, 'success']),
     )
-    expect(status.counts).toMatchObject({ mojang: 2, forge: 5, neoforge: 5, optifine: 4 })
+    expect(status.counts).toMatchObject({ mojang: 2, forge: 5, neoforge: 5, optifine: 5 })
   })
 
   it('triggers a sync with the admin token', async () => {

@@ -3,7 +3,10 @@ import type { OptiFineEntry } from '../db/models.js'
 import { parseOptiFineDownloads, parseOptiFineFilename } from '../parsers/optifine.js'
 import { UpstreamFormatError, type SyncFn } from './types.js'
 
-/** OptiFine, scraped from https://optifine.net/downloads (all versions, previews included). */
+/**
+ * OptiFine, scraped from https://optifine.net/downloads (all versions, previews included). Versions no
+ * longer listed there are kept.
+ */
 export const syncOptiFine: SyncFn = async (ctx) => {
   const { http, db, config } = ctx
   const html = await http.getText(`${config.upstreams.optifine}/downloads`, { headers: { accept: 'text/html' } })
@@ -36,6 +39,5 @@ export const syncOptiFine: SyncFn = async (ctx) => {
     })
   }
   const result = await db.optifine.bulkWrite(ops, { ordered: false })
-  const removed = await db.optifine.deleteMany({ filename: { $nin: rows.map((r) => r.filename) } })
-  return { versions: ops.length, added: result.upsertedCount, removed: removed.deletedCount }
+  return { versions: ops.length, added: result.upsertedCount }
 }
