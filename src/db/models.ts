@@ -96,7 +96,8 @@ export interface OptiFineEntry {
   type: string
   patch: string
   filename: string
-  forge: string
+  /** missing for some older previews imported from BMCLAPI */
+  forge?: string
   /** release date as shown on optifine.net (dd.mm.yyyy), not part of the BMCLAPI output */
   date: string | null
   preview: boolean

@@ -42,6 +42,12 @@ npm run sync -- forge optifine
 | `fabric` | meta.fabricmc.net | `/v2/versions` 下的各版本列表 | 30 分钟 |
 | `authlib-injector` | authlib-injector.yushi.moe | `artifacts.json`、`artifact/latest.json`、`artifact/<build>.json` | 6 小时 |
 
+官网已下架、只有 BMCLAPI 还保留的 OptiFine 历史版本不在定时抓取之内，需要时手动导入（只新增，不改动已有版本）：
+
+```sh
+npm run import-optifine-history
+```
+
 ## 接口
 
 ### Minecraft
