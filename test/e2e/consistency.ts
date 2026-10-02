@@ -629,13 +629,22 @@ async function neoforgeChecks(): Promise<void> {
   for (const mc of mcs) ours.push(...(await haru(`/neoforge/list/${encodeURIComponent(mc)}`)).json<NeoJson[]>())
 
   await check('neoforge', 'official', 'versions match maven.neoforged.net', async () => {
-    const all: string[] = []
+    const artifactOf = new Map<string, string>()
     for (const artifact of ['forge', 'neoforge']) {
-      all.push(...(await officialJson<{ versions: string[] }>(`${up.neoforgeMaven}/api/maven/versions/releases/net/neoforged/${artifact}`)).versions)
+      for (const v of (await officialJson<{ versions: string[] }>(`${up.neoforgeMaven}/api/maven/versions/releases/net/neoforged/${artifact}`)).versions) {
+        artifactOf.set(v, artifact)
+      }
     }
-    const { onlyA, onlyB } = setDiff(all, ours.map((v) => v.rawVersion))
-    if (!onlyA.length && !onlyB.length) return pass(`same ${all.length} versions`)
-    return fail(`haru lacks ${onlyA.length} and has ${onlyB.length} extra (official: ${all.length})`, { missingInHaru: onlyA.slice(0, 50), extraInHaru: onlyB.slice(0, 50) })
+    const { onlyA, onlyB } = setDiff(artifactOf.keys(), ours.map((v) => v.rawVersion))
+    // the version lists also name versions without any files, e.g. forge 47.1.82
+    const empty: string[] = []
+    for (const v of onlyA) {
+      if ((await official(`${up.neoforgeMaven}/api/maven/details/releases/net/neoforged/${artifactOf.get(v)}/${v}`)).status === 404) empty.push(v)
+    }
+    const missing = onlyA.filter((v) => !empty.includes(v))
+    const summary = `official ${artifactOf.size}, haru lacks ${missing.length} and has ${onlyB.length} extra`
+    if (missing.length || onlyB.length) return fail(summary, { missingInHaru: missing.slice(0, 50), extraInHaru: onlyB.slice(0, 50) })
+    return empty.length ? warn(`${summary}; ${empty.length} listed upstream without any files: ${empty.join(', ')}`) : pass(`same ${artifactOf.size} versions`)
   })
 
   await check('neoforge', 'official', 'every mcversion is a Minecraft version id', async () => {
